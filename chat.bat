@@ -1,17 +1,26 @@
 @echo off
-rem Starts an interactive chat with the agent. Sets up .venv on first use.
+rem Checks the setup, installs what is missing, activates .venv and starts the chat.
 setlocal
 cd /d "%~dp0"
 
-if not exist .venv\Scripts\python.exe (
-    echo Setting up .venv ...
-    python -m venv .venv || exit /b 1
-    .venv\Scripts\python -m pip install -q -r requirements.txt || exit /b 1
-)
-
-if not exist .env (
-    echo No .env found. Copy .env.example to .env and put your API key in it.
+python -c "import sys; sys.exit(sys.version_info < (3, 11))" 2>nul
+if errorlevel 1 (
+    echo Python 3.11 or newer is required: https://www.python.org/downloads/
     exit /b 1
 )
 
-.venv\Scripts\python -m agent
+if not exist .venv\Scripts\activate.bat (
+    echo Creating .venv ...
+    python -m venv .venv || exit /b 1
+)
+call .venv\Scripts\activate.bat
+
+python -m pip install -q --disable-pip-version-check -r requirements.txt || exit /b 1
+
+if not exist .env (
+    copy .env.example .env >nul
+    echo Created .env from .env.example. Put your API key into .env and start again.
+    exit /b 1
+)
+
+python -m agent

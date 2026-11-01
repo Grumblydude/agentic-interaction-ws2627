@@ -88,17 +88,17 @@ def main() -> int:
 
 def chat() -> int:
     """Interactive mode: each question is its own run with its own log file."""
-    print('Ask about the calendar, e.g. "Was steht am 29.10.2026 im Kalender?". '
-          "Type 'exit' or press Ctrl+C to quit.")
+    print("Calendar agent. Type 'exit' to quit.")
     while True:
         try:
-            task = input("\n> ").strip()
+            task = input("\nYou: ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             return 0
         if task.lower() in ("exit", "quit"):
             return 0
         if task:
+            print("Agent: ", end="", flush=True)
             ask(task)
 
 
