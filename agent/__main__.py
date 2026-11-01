@@ -25,7 +25,12 @@ def elapsed_ms(start: float) -> int:
 
 
 def run(task: str, config: Config, log: RunLog) -> str:
-    client = OpenAI(base_url=config.openai_base_url, api_key=config.openai_api_key)
+    # Only gzip: an outdated brotli package in the environment (e.g. conda base) breaks decoding.
+    client = OpenAI(
+        base_url=config.openai_base_url,
+        api_key=config.openai_api_key,
+        default_headers={"Accept-Encoding": "gzip, deflate"},
+    )
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
