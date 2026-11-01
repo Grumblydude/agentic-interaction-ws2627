@@ -1,0 +1,10 @@
+# Secrets
+.env
+
+# Run logs
+logs/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
