@@ -24,4 +24,25 @@ From the repository root:
 python -m agent "Was steht am 29.10.2026 im Kalender?"
 ```
 
-The answer is printed to standard output.
+The answer is printed to standard output, with exit code 0. On an error the message goes to
+standard error and the exit code is 1.
+
+## How it works
+
+1. The question goes to the model together with one tool, `get_calendar_day(date)`.
+2. The model calls the tool. The agent fetches `{DATA_BASE_URL}/calendar/{date}.json` and
+   returns the appointments to the model. HTTP 404 comes back as "no data", not as a crash.
+3. The model answers from the result.
+
+| File | Purpose |
+|---|---|
+| `agent/__main__.py` | Entry point and the model → tool → model loop |
+| `agent/tools.py` | Tool description for the model and its implementation |
+| `agent/config.py` | Reads settings from the environment and `.env` |
+| `agent/runlog.py` | Writes the JSONL run log |
+
+## Logs
+
+Each run writes its own file `logs/<timestamp>_<run>.jsonl`, one JSON object per line with the
+fields `ts`, `run_id`, `event` (`user_task`, `tool_call`, `tool_result`, `final`, `error`),
+`tool`, `args`, `ok`, `model` and `duration_ms`. `logs/` is not committed.
