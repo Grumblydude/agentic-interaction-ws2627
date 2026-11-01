@@ -33,7 +33,8 @@ Without a question, `python -m agent` starts a prompt where you can ask one ques
 another. Each question is its own run with its own log; the agent does not remember earlier
 questions. Type `exit` to quit.
 
-On Windows, `.\chat.bat` (or a double-click) does the same and creates `.venv` on first use.
+On Windows, `.\chat.bat` (or a double-click) checks Python, creates `.venv` if needed, installs
+missing packages, activates `.venv` and starts the chat.
 
 ## How it works
 
