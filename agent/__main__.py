@@ -82,10 +82,27 @@ def run(task: str, config: Config, log: RunLog) -> str:
 
 def main() -> int:
     if len(sys.argv) < 2:
-        print('Usage: python -m agent "<task>"', file=sys.stderr)
-        return 2
-    task = " ".join(sys.argv[1:])
+        return chat()
+    return ask(" ".join(sys.argv[1:]))
 
+
+def chat() -> int:
+    """Interactive mode: each question is its own run with its own log file."""
+    print('Ask about the calendar, e.g. "Was steht am 29.10.2026 im Kalender?". '
+          "Type 'exit' or press Ctrl+C to quit.")
+    while True:
+        try:
+            task = input("\n> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 0
+        if task.lower() in ("exit", "quit"):
+            return 0
+        if task:
+            ask(task)
+
+
+def ask(task: str) -> int:
     log = RunLog()
     start = time.perf_counter()
     try:

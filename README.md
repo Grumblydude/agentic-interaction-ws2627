@@ -27,6 +27,14 @@ python -m agent "Was steht am 29.10.2026 im Kalender?"
 The answer is printed to standard output, with exit code 0. On an error the message goes to
 standard error and the exit code is 1.
 
+### Interactive chat
+
+Without a question, `python -m agent` starts a prompt where you can ask one question after
+another. Each question is its own run with its own log; the agent does not remember earlier
+questions. Type `exit` to quit.
+
+On Windows, `.\chat.bat` (or a double-click) does the same and creates `.venv` on first use.
+
 ## How it works
 
 1. The question goes to the model together with one tool, `get_calendar_day(date)`.
