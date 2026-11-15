@@ -21,11 +21,12 @@ Environment variables take precedence over `.env`.
 From the repository root:
 
 ```bash
-python -m agent "Was steht am 29.10.2026 im Kalender?"
+python -m agent "What is on 29 Oct 2026 and on 30 Oct 2026?"
 ```
 
-The answer is printed to standard output, with exit code 0. On an error the message goes to
-standard error and the exit code is 1.
+The answer is printed to standard output, with exit code 0. If the run ends without an answer
+(step limit reached, model unusable, missing settings), the message goes to standard error and
+the exit code is 1.
 
 ### Interactive chat
 
@@ -38,20 +39,103 @@ missing packages, activates `.venv` and starts the chat.
 
 ## How it works
 
-1. The question goes to the model together with one tool, `get_calendar_day(date)`.
-2. The model calls the tool. The agent fetches `{DATA_BASE_URL}/calendar/{date}.json` and
-   returns the appointments to the model. HTTP 404 comes back as "no data", not as a crash.
-3. The model answers from the result.
+Every step is one model call. The loop runs until the model answers without calling a tool:
+
+1. The task goes to the model together with the tool descriptions.
+2. If the model calls tools, the agent runs each call and sends the results back. That is the
+   next step. The model can call several tools in one step or one after another.
+3. If the model answers, the run ends with that answer.
+
+**A visible end.** A run takes at most `MAX_STEPS` (8) model calls. If there is still no answer
+then, the run ends as an error (`reason: "step_limit"`, exit code 1), never as a success.
+
+**Errors along the way** do not abort the run. They are logged and the loop goes on:
+
+| What goes wrong | What happens |
+|---|---|
+| Data cannot be fetched (network, HTTP 5xx, bad JSON) | Tool result `{"error": ...}` with `ok: false`; the model decides what to do |
+| Invalid or broken arguments, unknown tool | Same: the error goes back to the model, which can correct itself |
+| A bug inside a tool | Same, so one tool cannot crash the run |
+| Model call fails temporarily (e.g. Groq `tool_use_failed`, timeout) | Logged as `error` with `fatal: false`; the step counts and the loop asks again |
+| Model returns neither answer nor tool call | Same as a temporary failure |
+| Rate limit (429), server error, connection error | First retried by the OpenAI SDK with backoff, then as above |
+| Wrong API key, no access, unknown model | Asking again cannot help: the run ends at once (`reason: "model_error"`) |
+
+HTTP 404 from the data means "no data for this day". It comes back as
+`{"no_data": true}` with `ok: true`, not as a failure.
+
+### Code
 
 | File | Purpose |
 |---|---|
-| `agent/__main__.py` | Entry point and the model → tool → model loop |
-| `agent/tools.py` | Tool description for the model and its implementation |
+| `agent/__main__.py` | Command line, wiring, exit codes |
+| `agent/loop.py` | The agent loop, step limit, system prompt |
+| `agent/model.py` | Model calls via the OpenAI SDK, reduced to `ModelReply`; sorts errors into temporary and permanent |
+| `agent/tools/base.py` | `Tool` and `Toolbox`: runs a tool by name and turns every failure into a result |
+| `agent/tools/calendar.py` | `get_calendar_day(date)` |
+| `agent/data.py` | Reads JSON from `DATA_BASE_URL`; 404 becomes "no data" |
 | `agent/config.py` | Reads settings from the environment and `.env` |
 | `agent/runlog.py` | Writes the JSONL run log |
+
+**Adding a tool:** write its handler and `Tool` in a new module under `agent/tools/` (see
+`calendar.py`), add it to `ALL_TOOLS` in `agent/tools/__init__.py` and add tests. The loop stays
+as it is.
 
 ## Logs
 
 Each run writes its own file `logs/<timestamp>_<run>.jsonl`, one JSON object per line with the
 fields `ts`, `run_id`, `event` (`user_task`, `tool_call`, `tool_result`, `final`, `error`),
 `tool`, `args`, `ok`, `model` and `duration_ms`. `logs/` is not committed.
+
+Additional fields show how a run went:
+
+- `step` on every event inside the loop: which model call it belongs to.
+- How the run ended is always the **last line**: either `final` (with `answer`) or `error` with
+  `fatal: true`, a `reason` (`step_limit`, `model_error`, `config`, `exception`) and `steps`.
+- `error` with `fatal: false` is a failed step the run recovered from.
+- `tool_result` carries the `result` the model saw; `tool_call` with broken arguments also has
+  `raw_arguments`.
+
+Show the newest log in PowerShell:
+
+```powershell
+Get-Content (Get-ChildItem logs\*.jsonl | Sort-Object LastWriteTime | Select-Object -Last 1)
+```
+
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+The tests use a scripted fake model and in-memory data, so they need no API key or network and
+cost no tokens. GitHub Actions runs them on every push (`.github/workflows/tests.yml`).
+
+| File | Covers |
+|---|---|
+| `tests/test_loop.py` | Several steps, step limit, every kind of error along the way |
+| `tests/test_cli.py` | Exit codes, stdout/stderr and the last log line |
+| `tests/test_tools.py` | Calendar tool, argument checks, toolbox error handling |
+| `tests/test_data.py` | URL building, 404, network and JSON errors |
+| `tests/test_model.py` | Mapping SDK replies, temporary vs. permanent SDK errors |
+| `tests/test_live.py` | End to end against the real model; only with `AGENT_LIVE_TESTS=1` |
+
+The live tests make real model calls. The free tier allows 8,000 tokens per minute, so run them
+on their own:
+
+```bash
+AGENT_LIVE_TESTS=1 python -m pytest tests/test_live.py      # PowerShell: $env:AGENT_LIVE_TESTS=1
+```
+
+### Tasks to try by hand
+
+Check the log after each run: which tools were called, with which arguments, and how it ended.
+
+| Task | What the log should show |
+|---|---|
+| `"What is on 29 Oct 2026 and on 30 Oct 2026?"` | Two `get_calendar_day` calls, then `final` |
+| `"Was steht am 29.10.2026 im Kalender?"` | The question from exercise 1: one call, then `final` |
+| `"What is on 29 Oct 2026 and on 24 Dec 2026?"` | One result with `no_data: true`; the answer says 24 Dec could not be checked, not that it is free |
+| Same task with `DATA_BASE_URL=https://nonexistent.invalid/v1` | `tool_result` with `ok: false`, still a `final` answer, exit code 0 |
+| `"Go through every day from 26 Oct to 8 Nov 2026 one at a time and list all appointments."` | Probably hits the step limit: last line `error`, `reason: "step_limit"`, exit code 1 |

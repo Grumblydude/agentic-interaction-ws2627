@@ -1,89 +1,25 @@
-"""Entry point: python -m agent "<task>"."""
-import json
+"""Entry point: python -m agent "<task>" answers one task; without a task it starts a chat."""
 import sys
 import time
 
-from openai import OpenAI
-
-from .config import Config, load_config
+from .config import load_config
+from .data import HttpDataSource
+from .loop import MAX_STEPS, AgentError, elapsed_ms, run_agent
+from .model import ChatModel, OpenAIChatModel
 from .runlog import RunLog
-from .tools import TOOLS, run_tool
-
-SYSTEM_PROMPT = (
-    "You are a calendar assistant. For any question about appointments or the schedule "
-    "of a day, call get_calendar_day for that date. Never guess calendar contents. "
-    "Answer briefly in the language of the question, listing times, titles and locations. "
-    "If the tool reports no data or no appointments, say so."
-)
-
-# Upper bound on model calls, so a model that keeps calling tools cannot loop forever.
-MAX_STEPS = 5
+from .tools import ALL_TOOLS, Toolbox
 
 
-def elapsed_ms(start: float) -> int:
-    return round((time.perf_counter() - start) * 1000)
-
-
-def run(task: str, config: Config, log: RunLog) -> str:
-    # Only gzip: an outdated brotli package in the environment (e.g. conda base) breaks decoding.
-    client = OpenAI(
-        base_url=config.openai_base_url,
-        api_key=config.openai_api_key,
-        default_headers={"Accept-Encoding": "gzip, deflate"},
-    )
-
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": task},
-    ]
-
-    for _ in range(MAX_STEPS):
-        start = time.perf_counter()
-        response = client.chat.completions.create(
-            model=config.model, messages=messages, tools=TOOLS, tool_choice="auto"
-        )
-        model_ms = elapsed_ms(start)
-        message = response.choices[0].message
-
-        if not message.tool_calls:
-            answer = (message.content or "").strip()
-            log.write("final", duration_ms=model_ms, answer=answer)
-            return answer
-
-        messages.append({
-            "role": "assistant",
-            "content": message.content or "",
-            "tool_calls": [call.model_dump() for call in message.tool_calls],
-        })
-        for call in message.tool_calls:
-            name = call.function.name
-            try:
-                args = json.loads(call.function.arguments or "{}")
-            except json.JSONDecodeError:
-                args = {}
-            log.write("tool_call", tool=name, args=args, duration_ms=model_ms)
-
-            start = time.perf_counter()
-            try:
-                result = run_tool(name, args, config.data_base_url)
-            except Exception as err:
-                result = {"error": f"Tool failed: {err}"}
-            ok = "error" not in result
-            log.write("tool_result", tool=name, args=args, ok=ok,
-                      duration_ms=elapsed_ms(start), result=result)
-            messages.append({
-                "role": "tool",
-                "tool_call_id": call.id,
-                "content": json.dumps(result, ensure_ascii=False),
-            })
-
-    raise RuntimeError(f"No final answer after {MAX_STEPS} model calls.")
-
-
-def main() -> int:
-    if len(sys.argv) < 2:
+def main(argv: list[str] | None = None) -> int:
+    # When output is piped on Windows, the console code page cannot encode every character of an
+    # answer (e.g. "→"). Replace those instead of crashing after the answer has been logged.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
+    argv = sys.argv[1:] if argv is None else argv
+    if not argv:
         return chat()
-    return ask(" ".join(sys.argv[1:]))
+    return ask(" ".join(argv))
 
 
 def chat() -> int:
@@ -103,20 +39,45 @@ def chat() -> int:
 
 
 def ask(task: str) -> int:
+    """Sets up model, tools and log from the configuration and answers one task."""
     log = RunLog()
-    start = time.perf_counter()
     try:
         config = load_config()
-        log.model = config.model
-        log.write("user_task", task=task)
-        answer = run(task, config, log)
-    except Exception as err:
-        log.write("error", ok=False, duration_ms=elapsed_ms(start), task=task, error=str(err))
-        print(f"Error: {err}", file=sys.stderr)
-        return 1
+    except RuntimeError as err:
+        return _fail(log, task, str(err), reason="config", steps=0, duration_ms=0)
+
+    log.model = config.model
+    model = OpenAIChatModel(
+        base_url=config.openai_base_url, api_key=config.openai_api_key, model=config.model
+    )
+    toolbox = Toolbox(ALL_TOOLS, HttpDataSource(config.data_base_url))
+    return answer_task(task, model, toolbox, log)
+
+
+def answer_task(task: str, model: ChatModel, toolbox: Toolbox, log: RunLog,
+                max_steps: int = MAX_STEPS) -> int:
+    """Runs one task. Answer to stdout and exit code 0, or error to stderr and exit code 1."""
+    start = time.perf_counter()
+    log.write("user_task", task=task)
+    try:
+        answer = run_agent(task, model, toolbox, log, max_steps=max_steps)
+    except AgentError as err:
+        return _fail(log, task, str(err), reason=err.reason, steps=err.steps,
+                     duration_ms=elapsed_ms(start))
+    except Exception as err:  # a bug must still end the run with a logged error, not a traceback
+        return _fail(log, task, f"Unexpected error: {type(err).__name__}: {err}",
+                     reason="exception", steps=None, duration_ms=elapsed_ms(start))
 
     print(answer)
     return 0
+
+
+def _fail(log: RunLog, task: str, message: str, *, reason: str, steps: int | None,
+          duration_ms: int) -> int:
+    log.write("error", ok=False, duration_ms=duration_ms, fatal=True, reason=reason,
+              steps=steps, task=task, error=message)
+    print(f"Error: {message}", file=sys.stderr)
+    return 1
 
 
 if __name__ == "__main__":

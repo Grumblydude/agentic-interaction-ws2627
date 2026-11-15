@@ -2,6 +2,7 @@
 import json
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from .config import REPO_ROOT
 
@@ -9,12 +10,13 @@ LOG_DIR = REPO_ROOT / "logs"
 
 
 class RunLog:
-    def __init__(self, model: str | None = None):
+    def __init__(self, model: str | None = None, log_dir: Path | None = None):
         self.run_id = uuid.uuid4().hex
         self.model = model
-        LOG_DIR.mkdir(exist_ok=True)
+        log_dir = log_dir or LOG_DIR
+        log_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        self.path = LOG_DIR / f"{stamp}_{self.run_id[:8]}.jsonl"
+        self.path = log_dir / f"{stamp}_{self.run_id[:8]}.jsonl"
 
     def write(self, event: str, *, tool=None, args=None, ok=True, duration_ms=None, **extra):
         record = {
