@@ -1,23 +1,11 @@
 """get_calendar_day: all appointments of one day."""
-import re
-from datetime import date
-
 from ..data import DataSource
-from .base import Tool, ToolError
-
-# Strictly YYYY-MM-DD. date.fromisoformat alone would also accept e.g. 20261029.
-_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+from .args import require_date
+from .base import Tool
 
 
 def get_calendar_day(args: dict, data: DataSource) -> dict:
-    day = args.get("date")
-    if not isinstance(day, str) or not _DATE.fullmatch(day):
-        raise ToolError(f"Invalid date {day!r}, expected YYYY-MM-DD.")
-    try:
-        date.fromisoformat(day)
-    except ValueError:
-        raise ToolError(f"Invalid date {day!r}, no such day.") from None
-
+    day = require_date(args)
     result = data.get_json(f"calendar/{day}.json")
     if result is None:
         return {"date": day, "no_data": True, "message": NO_DATA_MESSAGE}

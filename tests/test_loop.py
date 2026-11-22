@@ -2,7 +2,7 @@
 import json
 
 import pytest
-from fakes import ScriptedModel, answer, calendar_calls, events, raw_call, read_log
+from fakes import ScriptedModel, answer, calendar_calls, events, raw_call, read_log, tool_calls
 
 from agent.data import DataError
 from agent.loop import AgentError, run_agent
@@ -57,6 +57,31 @@ def test_answer_without_tool_call_ends_after_one_step(toolbox, data, log):
     assert run_agent("Hi", model, toolbox, log) == "Hello"
     assert data.requested == []
     assert events(log.path) == ["final"]
+
+
+def test_task_with_two_different_tools(toolbox, data, log):
+    model = ScriptedModel(
+        tool_calls(("get_connections", {"origin": "ulm", "destination": "muenchen", "date": "2026-10-29"}),
+                   ("get_weather", {"city": "muenchen", "date": "2026-10-29"})),
+        answer("ICE 596 at 08:12. Rain 60 %, take an umbrella."),
+    )
+
+    assert run_agent("To Munich on 29 Oct, umbrella?", model, toolbox, log).startswith("ICE 596")
+
+    results = [r for r in read_log(log.path) if r["event"] == "tool_result"]
+    assert [(r["tool"], r["ok"]) for r in results] == [("get_connections", True), ("get_weather", True)]
+    assert [r["train"] for r in tool_messages(model.requests[-1])[0]["connections"]] == ["ICE 596"]
+    assert tool_messages(model.requests[-1])[1]["rain_probability"] == 0.6
+
+
+def test_facts_are_added_to_the_system_prompt(toolbox, log):
+    model = ScriptedModel(answer("ok"))
+
+    run_agent("task", model, toolbox, log, facts="The user lives in Ulm.")
+
+    system = model.requests[0][0]
+    assert system["role"] == "system"
+    assert system["content"].endswith("\n\nThe user lives in Ulm.")
 
 
 # --- a visible end ----------------------------------------------------------------------------
@@ -144,13 +169,13 @@ def test_broken_json_arguments_go_back_to_the_model(toolbox, log):
 
 
 def test_unknown_tool_goes_back_to_the_model(toolbox, log):
-    model = ScriptedModel(raw_call("get_weather", '{"city": "ulm"}'), answer("no weather tool"))
+    model = ScriptedModel(raw_call("book_ticket", '{"train": "ICE 596"}'), answer("cannot book"))
 
     run_agent("task", model, toolbox, log)
 
     error = tool_messages(model.requests[1])[0]["error"]
-    assert "Unknown tool 'get_weather'" in error
-    assert "get_calendar_day" in error
+    assert "Unknown tool 'book_ticket'" in error
+    assert "get_calendar_day, get_weather, get_connections" in error
 
 
 def test_temporary_model_error_is_logged_and_the_run_goes_on(toolbox, log):

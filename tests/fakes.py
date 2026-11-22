@@ -50,6 +50,14 @@ def calendar_calls(*dates: str) -> ModelReply:
     ))
 
 
+def tool_calls(*calls: tuple[str, dict]) -> ModelReply:
+    """A model reply with the given (tool name, arguments) calls, all in one step."""
+    return ModelReply(tool_calls=tuple(
+        ToolCall(id=f"call_{i}_{name}", name=name, arguments=json.dumps(args))
+        for i, (name, args) in enumerate(calls)
+    ))
+
+
 def raw_call(name: str, arguments: str, call_id: str = "call_raw") -> ModelReply:
     """A model reply with one tool call whose arguments are given as raw text."""
     return ModelReply(tool_calls=(ToolCall(id=call_id, name=name, arguments=arguments),))
@@ -77,5 +85,17 @@ DAY_30 = {
     "date": "2026-10-30",
     "events": [
         {"id": "t-2", "start": "14:00", "end": "15:00", "title": "Review", "location": "online"},
+    ],
+}
+INDEX = {"cities": {"ulm": "Ulm", "muenchen": "München"}}
+CONTEXT = {"home": "Ulm"}
+WEATHER_MUC_29 = {"city": "München", "date": "2026-10-29", "temp_c": 8, "condition": "Schauer",
+                  "rain_probability": 0.6, "wind_kmh": 18}
+CONNECTIONS_ULM_MUC_29 = {
+    "from": "Ulm",
+    "to": "München",
+    "date": "2026-10-29",
+    "connections": [
+        {"departure": "08:12", "arrival": "09:33", "changes": 0, "train": "ICE 596", "price_eur": 29.9},
     ],
 }

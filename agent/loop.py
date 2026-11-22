@@ -12,14 +12,17 @@ from .runlog import RunLog
 from .tools import Toolbox, ToolOutcome
 
 SYSTEM_PROMPT = (
-    "You are a calendar assistant. For any question about appointments or the schedule "
-    "of a day, call get_calendar_day for that date; for several days, call it once per day. "
-    "Never guess calendar contents. If a tool returns an error, retry with corrected "
-    "arguments or say what could not be looked up. When you have everything, answer briefly "
-    "in plain text without Markdown, listing times, titles and locations. Always answer in "
-    "the language of the user's question, even if the calendar data is in another language. "
-    "An empty list of events means the day is free; no_data means the calendar has no data "
-    "for that day, which is not the same, so say that the day could not be checked."
+    "You are a personal assistant with tools for the user's calendar, the weather and train "
+    "connections. Look up every fact you state with a tool; for several days or places, call "
+    "the tool once per day or place. For the weather on a trip, check both the start and the destination. "
+    "Never guess or invent appointments, trains, times, prices "
+    "or weather. If a tool returns an error, retry with corrected arguments or say what could "
+    "not be looked up. no_data means the data has nothing for that place or day: say that it "
+    "is unknown instead of filling the gap. In the calendar, an empty list of events means the "
+    "day is free, which is not the same as no_data. When you have everything, answer briefly "
+    "in plain text without Markdown, with the times, titles, trains and places that matter. "
+    "Always answer in the language of the user's question, even if the data is in another "
+    "language."
 )
 
 # Upper bound on model calls per run, so a model that keeps calling tools cannot loop forever.
@@ -40,10 +43,14 @@ def elapsed_ms(start: float) -> int:
 
 
 def run_agent(task: str, model: ChatModel, toolbox: Toolbox, log: RunLog,
-              max_steps: int = MAX_STEPS) -> str:
-    """Runs the task to an answer and returns it, or raises AgentError."""
+              max_steps: int = MAX_STEPS, facts: str = "") -> str:
+    """Runs the task to an answer and returns it, or raises AgentError.
+
+    `facts` is appended to the system prompt, e.g. which places have data (see facts.py).
+    """
+    system_prompt = f"{SYSTEM_PROMPT}\n\n{facts}" if facts else SYSTEM_PROMPT
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": task},
     ]
 

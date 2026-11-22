@@ -21,7 +21,7 @@ Environment variables take precedence over `.env`.
 From the repository root:
 
 ```bash
-python -m agent "What is on 29 Oct 2026 and on 30 Oct 2026?"
+python -m agent "How do I get to Munich on 29 Oct 2026, and do I need an umbrella?"
 ```
 
 The answer is printed to standard output, with exit code 0. If the run ends without an answer
@@ -38,6 +38,33 @@ On Windows, `.\chat.bat` (or a double-click) checks Python, creates `.venv` if n
 missing packages, activates `.venv` and starts the chat.
 
 ## How it works
+
+### Tools
+
+| Tool | Reads from `DATA_BASE_URL` | For |
+|---|---|---|
+| `get_calendar_day(date)` | `calendar/{date}.json` | Appointments of one day |
+| `get_weather(city, date)` | `weather/{city}/{date}.json` | Condition, temperature, rain probability, wind |
+| `get_connections(origin, destination, date)` | `transit/{origin}/{destination}/{date}.json` | Trains: departure, arrival, changes, price |
+
+At startup the agent reads `index.json` (places with data and their ids, e.g. `muenchen` for
+München) and `context.json` (the user's home, Ulm) and adds both to the system prompt. Nothing
+about places is written into the code, and a question like "How do I get to Munich?" starts at
+home.
+
+**Gaps.** The data has weather and trains only for a few days. Whenever there is nothing, the
+tool says so instead of returning values, and the model is told to report it as unknown:
+
+| Case | Tool result |
+|---|---|
+| Day without data (HTTP 404) | `{"no_data": true, "message": "... Do not guess ..."}` |
+| Place not in `index.json`, e.g. `berlin` | `{"no_data": true, ...}` listing the places that have data, without a request |
+| Calendar day with an empty list | The day is free, which is not the same as `no_data` |
+
+Place ids are matched in lower case. If `index.json` cannot be read, only plain ids like `ulm` are
+accepted, so an argument cannot change the request path.
+
+### The loop
 
 Every step is one model call. The loop runs until the model answers without calling a tool:
 
@@ -61,8 +88,8 @@ then, the run ends as an error (`reason: "step_limit"`, exit code 1), never as a
 | Rate limit (429), server error, connection error | First retried by the OpenAI SDK with backoff, then as above |
 | Wrong API key, no access, unknown model | Asking again cannot help: the run ends at once (`reason: "model_error"`) |
 
-HTTP 404 from the data means "no data for this day". It comes back as
-`{"no_data": true}` with `ok: true`, not as a failure.
+HTTP 404 from the data means "no data". It comes back as `{"no_data": true}` with `ok: true`,
+not as a failure.
 
 ### Code
 
@@ -73,6 +100,10 @@ HTTP 404 from the data means "no data for this day". It comes back as
 | `agent/model.py` | Model calls via the OpenAI SDK, reduced to `ModelReply`; sorts errors into temporary and permanent |
 | `agent/tools/base.py` | `Tool` and `Toolbox`: runs a tool by name and turns every failure into a result |
 | `agent/tools/calendar.py` | `get_calendar_day(date)` |
+| `agent/tools/weather.py` | `get_weather(city, date)` |
+| `agent/tools/transit.py` | `get_connections(origin, destination, date)` |
+| `agent/tools/args.py` | Shared checks for dates and place ids |
+| `agent/facts.py` | Places and home from the data, for the system prompt |
 | `agent/data.py` | Reads JSON from `DATA_BASE_URL`; 404 becomes "no data" |
 | `agent/config.py` | Reads settings from the environment and `.env` |
 | `agent/runlog.py` | Writes the JSONL run log |
@@ -114,9 +145,11 @@ cost no tokens. GitHub Actions runs them on every push (`.github/workflows/tests
 
 | File | Covers |
 |---|---|
-| `tests/test_loop.py` | Several steps, step limit, every kind of error along the way |
+| `tests/test_loop.py` | Several steps, two different tools in one task, step limit, every kind of error along the way |
 | `tests/test_cli.py` | Exit codes, stdout/stderr and the last log line |
 | `tests/test_tools.py` | Calendar tool, argument checks, toolbox error handling |
+| `tests/test_travel_tools.py` | Weather and connections: data, days and places without data, argument checks |
+| `tests/test_facts.py` | Places and home for the system prompt |
 | `tests/test_data.py` | URL building, 404, network and JSON errors |
 | `tests/test_model.py` | Mapping SDK replies, temporary vs. permanent SDK errors |
 | `tests/test_live.py` | End to end against the real model; only with `AGENT_LIVE_TESTS=1` |
@@ -134,6 +167,9 @@ Check the log after each run: which tools were called, with which arguments, and
 
 | Task | What the log should show |
 |---|---|
+| `"How do I get to Munich on 29 Oct 2026, and do I need an umbrella?"` | `get_connections` (ulm → muenchen) and `get_weather`, then `final` naming a train and the weather |
+| `"How do I get back from Munich to Ulm on 30 Oct 2026, and will it rain in Munich?"` | Both results with `no_data: true`; the answer says both are unknown, with no times or weather |
+| `"What is the weather in Berlin on 29 Oct 2026?"` | No values: the answer says there is no data for Berlin |
 | `"What is on 29 Oct 2026 and on 30 Oct 2026?"` | Two `get_calendar_day` calls, then `final` |
 | `"Was steht am 29.10.2026 im Kalender?"` | The question from exercise 1: one call, then `final` |
 | `"What is on 29 Oct 2026 and on 24 Dec 2026?"` | One result with `no_data: true`; the answer says 24 Dec could not be checked, not that it is free |

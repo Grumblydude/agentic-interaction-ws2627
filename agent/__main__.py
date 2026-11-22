@@ -4,6 +4,7 @@ import time
 
 from .config import load_config
 from .data import HttpDataSource
+from .facts import describe_data
 from .loop import MAX_STEPS, AgentError, elapsed_ms, run_agent
 from .model import ChatModel, OpenAIChatModel
 from .runlog import RunLog
@@ -50,17 +51,18 @@ def ask(task: str) -> int:
     model = OpenAIChatModel(
         base_url=config.openai_base_url, api_key=config.openai_api_key, model=config.model
     )
-    toolbox = Toolbox(ALL_TOOLS, HttpDataSource(config.data_base_url))
-    return answer_task(task, model, toolbox, log)
+    data = HttpDataSource(config.data_base_url)
+    toolbox = Toolbox(ALL_TOOLS, data)
+    return answer_task(task, model, toolbox, log, facts=describe_data(data))
 
 
 def answer_task(task: str, model: ChatModel, toolbox: Toolbox, log: RunLog,
-                max_steps: int = MAX_STEPS) -> int:
+                max_steps: int = MAX_STEPS, facts: str = "") -> int:
     """Runs one task. Answer to stdout and exit code 0, or error to stderr and exit code 1."""
     start = time.perf_counter()
     log.write("user_task", task=task)
     try:
-        answer = run_agent(task, model, toolbox, log, max_steps=max_steps)
+        answer = run_agent(task, model, toolbox, log, max_steps=max_steps, facts=facts)
     except AgentError as err:
         return _fail(log, task, str(err), reason=err.reason, steps=err.steps,
                      duration_ms=elapsed_ms(start))

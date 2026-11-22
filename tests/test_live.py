@@ -38,6 +38,24 @@ def test_two_days_need_several_tool_calls():
     assert log[-1]["event"] == "final"
 
 
+def test_trip_and_weather_need_two_different_tools():
+    process, log = run_agent_cli("How do I get to Munich on 29 Oct 2026, and do I need an umbrella?")
+
+    assert process.returncode == 0, process.stderr
+    tools = {record["tool"] for record in log if record["event"] == "tool_result" and record["ok"]}
+    assert {"get_connections", "get_weather"} <= tools
+    assert log[-1]["event"] == "final"
+
+
+def test_place_without_data_gets_no_invented_weather():
+    process, log = run_agent_cli("What is the weather in Berlin on 29 Oct 2026?")
+
+    assert process.returncode == 0, process.stderr
+    weather = [r["result"] for r in log if r["event"] == "tool_result" and r["tool"] == "get_weather"]
+    assert all(result.get("no_data") or "error" in result for result in weather)
+    assert "°" not in process.stdout
+
+
 def test_question_from_exercise_1_still_works():
     process, log = run_agent_cli("Was steht am 29.10.2026 im Kalender?")
 
