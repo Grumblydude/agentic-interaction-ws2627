@@ -30,9 +30,17 @@ the exit code is 1.
 
 ### Interactive chat
 
-Without a question, `python -m agent` starts a prompt where you can ask one question after
-another. Each question is its own run with its own log; the agent does not remember earlier
-questions. Type `exit` to quit.
+Without a question, `python -m agent` starts a chat. It is one conversation, so follow-ups work
+("And do I need an umbrella there?", "Which of those trains arrives before 9:30?"). Type `new`
+to start a fresh conversation and `exit` to quit.
+
+- The whole chat is one run with one log file. Every question in it is logged from `user_task`
+  to `final` or `error`, and the step limit applies to each question on its own.
+- A question that fails (e.g. step limit) is dropped from the conversation, and the chat goes on.
+- Every question resends the conversation so far. In a long chat, use `new` to stay within the
+  free tier's 8,000 tokens per minute.
+
+`python -m agent "<question>"` is not affected: one task, one run, one log, as before.
 
 On Windows, `.\chat.bat` (or a double-click) checks Python, creates `.venv` if needed, installs
 missing packages, activates `.venv` and starts the chat.
@@ -146,7 +154,7 @@ cost no tokens. GitHub Actions runs them on every push (`.github/workflows/tests
 | File | Covers |
 |---|---|
 | `tests/test_loop.py` | Several steps, two different tools in one task, step limit, every kind of error along the way |
-| `tests/test_cli.py` | Exit codes, stdout/stderr and the last log line |
+| `tests/test_cli.py` | Exit codes, stdout/stderr and the last log line; the chat keeps one conversation |
 | `tests/test_tools.py` | Calendar tool, argument checks, toolbox error handling |
 | `tests/test_travel_tools.py` | Weather and connections: data, days and places without data, argument checks |
 | `tests/test_facts.py` | Places and home for the system prompt |

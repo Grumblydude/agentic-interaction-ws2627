@@ -43,16 +43,21 @@ def elapsed_ms(start: float) -> int:
 
 
 def run_agent(task: str, model: ChatModel, toolbox: Toolbox, log: RunLog,
-              max_steps: int = MAX_STEPS, facts: str = "") -> str:
+              max_steps: int = MAX_STEPS, facts: str = "",
+              messages: list[dict] | None = None) -> str:
     """Runs the task to an answer and returns it, or raises AgentError.
 
     `facts` is appended to the system prompt, e.g. which places have data (see facts.py).
+    `messages` continues an earlier conversation (the chat): pass the same list for every
+    follow-up. It is extended in place with the task, the tool calls and the answer.
+    The step limit applies to each task on its own.
     """
-    system_prompt = f"{SYSTEM_PROMPT}\n\n{facts}" if facts else SYSTEM_PROMPT
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": task},
-    ]
+    if messages is None:
+        messages = []
+    if not messages:
+        system_prompt = f"{SYSTEM_PROMPT}\n\n{facts}" if facts else SYSTEM_PROMPT
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": task})
 
     for step in range(1, max_steps + 1):
         start = time.perf_counter()
@@ -73,6 +78,7 @@ def run_agent(task: str, model: ChatModel, toolbox: Toolbox, log: RunLog,
             continue
 
         if reply.content:
+            messages.append(reply.as_message())  # so a follow-up question sees this answer
             log.write("final", duration_ms=model_ms, step=step, answer=reply.content)
             return reply.content
 

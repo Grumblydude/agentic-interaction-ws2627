@@ -193,3 +193,28 @@ def test_empty_reply_counts_as_failed_step(toolbox, log):
 
     assert run_agent("task", model, toolbox, log) == "ok"
     assert events(log.path) == ["error", "final"]
+
+
+# --- conversations (the chat) -----------------------------------------------------------------
+
+def test_follow_up_sees_the_earlier_conversation(toolbox, log):
+    model = ScriptedModel(calendar_calls("2026-10-29"), answer("Standup at 9."), answer("Nothing else."))
+    messages: list[dict] = []
+
+    run_agent("What is on 29 Oct?", model, toolbox, log, messages=messages)
+    run_agent("Anything else?", model, toolbox, log, messages=messages)
+
+    roles = [m["role"] for m in model.requests[-1]]
+    assert roles == ["system", "user", "assistant", "tool", "assistant", "user"]
+    contents = [m["content"] for m in model.requests[-1]]
+    assert "What is on 29 Oct?" in contents and "Standup at 9." in contents
+    assert messages[-1] == {"role": "assistant", "content": "Nothing else."}
+
+
+def test_without_a_conversation_every_task_starts_fresh(toolbox, log):
+    model = ScriptedModel(answer("first"), answer("second"))
+
+    run_agent("one", model, toolbox, log)
+    run_agent("two", model, toolbox, log)
+
+    assert [m["role"] for m in model.requests[-1]] == ["system", "user"]

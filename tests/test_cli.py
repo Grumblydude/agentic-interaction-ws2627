@@ -65,3 +65,45 @@ def test_chat_ends_on_exit(monkeypatch, line):
     monkeypatch.setattr("builtins.input", lambda prompt: line)
 
     assert cli.main([]) == 0
+
+
+def run_chat(monkeypatch, tmp_path, lines, model, toolbox) -> int:
+    """Runs the chat with the given input lines and a fake model instead of the configuration."""
+    monkeypatch.setattr(agent.runlog, "LOG_DIR", tmp_path)
+    monkeypatch.setattr(cli, "_connect", lambda log: (model, toolbox, ""))
+    answers = iter(lines)
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+    return cli.main([])
+
+
+def test_chat_keeps_the_conversation_in_one_log(monkeypatch, tmp_path, toolbox, capsys):
+    model = ScriptedModel(calendar_calls("2026-10-29"), answer("Standup at 9."), answer("Only that."))
+
+    code = run_chat(monkeypatch, tmp_path, ["What is on 29 Oct?", "Anything else?", "exit"],
+                    model, toolbox)
+
+    assert code == 0
+    assert "Standup at 9." in [m["content"] for m in model.requests[-1]]
+    (log_file,) = tmp_path.glob("*.jsonl")
+    assert events(log_file).count("user_task") == 2
+    assert len({record["run_id"] for record in read_log(log_file)}) == 1
+    assert "Only that." in capsys.readouterr().out
+
+
+def test_chat_new_starts_a_fresh_conversation(monkeypatch, tmp_path, toolbox):
+    model = ScriptedModel(answer("first"), answer("second"))
+
+    run_chat(monkeypatch, tmp_path, ["one", "new", "two", "exit"], model, toolbox)
+
+    assert [m["content"] for m in model.requests[-1]][1:] == ["two"]
+
+
+def test_chat_forgets_a_failed_question_and_goes_on(monkeypatch, tmp_path, toolbox):
+    model = ScriptedModel(ModelError("invalid API key", recoverable=False), answer("ok"))
+
+    code = run_chat(monkeypatch, tmp_path, ["broken", "works", "exit"], model, toolbox)
+
+    assert code == 0
+    assert [m["content"] for m in model.requests[-1]][1:] == ["works"]
+    (log_file,) = tmp_path.glob("*.jsonl")
+    assert events(log_file) == ["user_task", "error", "user_task", "final"]
