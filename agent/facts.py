@@ -13,8 +13,11 @@ def describe_data(data: DataSource) -> str:
     index = _load(data, "index.json")
     context = _load(data, "context.json")
 
-    # The mock data has its own "now". Without it, the model takes "today" from its own clock,
-    # which lies outside the data, so every question about today or tomorrow found nothing.
+    # Why "today" is not the real date: on purpose, "today" means the "now" of the mock data
+    # (context.json, 2026-10-29T07:20), not the date on your computer. The data only covers
+    # 26 Oct - 8 Nov 2026, so with the real date every question about today or tomorrow found
+    # no data. If "today" in an answer looks wrong, check "now" in context.json; if the agent
+    # should use the real date again, remove this block.
     now = _parse(context.get("now"), datetime.fromisoformat)
     if now:
         lines.append(f"It is now {now:%A, %d %B %Y, %H:%M} ({now:%Y-%m-%d}). Use this for today, "
