@@ -55,10 +55,15 @@ missing packages, activates `.venv` and starts the chat.
 | `get_weather(city, date)` | `weather/{city}/{date}.json` | Condition, temperature, rain probability, wind |
 | `get_connections(origin, destination, date)` | `transit/{origin}/{destination}/{date}.json` | Trains: departure, arrival, changes, price |
 
-At startup the agent reads `index.json` (places with data and their ids, e.g. `muenchen` for
-München) and `context.json` (the user's home, Ulm) and adds both to the system prompt. Nothing
-about places is written into the code, and a question like "How do I get to Munich?" starts at
-home.
+At startup the agent reads `index.json` and `context.json` and adds what it finds to the system
+prompt (`agent/facts.py`). Nothing of it is written into the code:
+
+| From the data | Effect |
+|---|---|
+| `now` (context.json, 29 Oct 2026 07:20) | "today" and "tomorrow" mean days in the data, not the real date; trains that have left are not offered |
+| `days` (index.json, 26 Oct – 8 Nov 2026) | The model knows which period the data covers |
+| `cities` (index.json) | Place ids for the tools, e.g. `muenchen` for München |
+| `home` (context.json, Ulm) | "How do I get to Munich?" starts at home |
 
 **Gaps.** The data has weather and trains only for a few days. Whenever there is nothing, the
 tool says so instead of returning values, and the model is told to report it as unknown:
@@ -157,7 +162,7 @@ cost no tokens. GitHub Actions runs them on every push (`.github/workflows/tests
 | `tests/test_cli.py` | Exit codes, stdout/stderr and the last log line; the chat keeps one conversation |
 | `tests/test_tools.py` | Calendar tool, argument checks, toolbox error handling |
 | `tests/test_travel_tools.py` | Weather and connections: data, days and places without data, argument checks |
-| `tests/test_facts.py` | Places and home for the system prompt |
+| `tests/test_facts.py` | Current time, period, places and home for the system prompt |
 | `tests/test_data.py` | URL building, 404, network and JSON errors |
 | `tests/test_model.py` | Mapping SDK replies, temporary vs. permanent SDK errors |
 | `tests/test_live.py` | End to end against the real model; only with `AGENT_LIVE_TESTS=1` |
@@ -178,6 +183,7 @@ Check the log after each run: which tools were called, with which arguments, and
 | `"How do I get to Munich on 29 Oct 2026, and do I need an umbrella?"` | `get_connections` (ulm → muenchen) and `get_weather`, then `final` naming a train and the weather |
 | `"How do I get back from Munich to Ulm on 30 Oct 2026, and will it rain in Munich?"` | Both results with `no_data: true`; the answer says both are unknown, with no times or weather |
 | `"What is the weather in Berlin on 29 Oct 2026?"` | No values: the answer says there is no data for Berlin |
+| `"What's the weather tomorrow?"` | `get_weather` for `2026-10-30`, the day after the data's "now" |
 | `"What is on 29 Oct 2026 and on 30 Oct 2026?"` | Two `get_calendar_day` calls, then `final` |
 | `"Was steht am 29.10.2026 im Kalender?"` | The question from exercise 1: one call, then `final` |
 | `"What is on 29 Oct 2026 and on 24 Dec 2026?"` | One result with `no_data: true`; the answer says 24 Dec could not be checked, not that it is free |

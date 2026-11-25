@@ -87,8 +87,8 @@ DAY_30 = {
         {"id": "t-2", "start": "14:00", "end": "15:00", "title": "Review", "location": "online"},
     ],
 }
-INDEX = {"cities": {"ulm": "Ulm", "muenchen": "München"}}
-CONTEXT = {"home": "Ulm"}
+INDEX = {"days": {"first": "2026-10-26", "last": "2026-11-08"}, "cities": {"ulm": "Ulm", "muenchen": "München"}}
+CONTEXT = {"now": "2026-10-29T07:20", "home": "Ulm"}
 WEATHER_MUC_29 = {"city": "München", "date": "2026-10-29", "temp_c": 8, "condition": "Schauer",
                   "rain_probability": 0.6, "wind_kmh": 18}
 CONNECTIONS_ULM_MUC_29 = {

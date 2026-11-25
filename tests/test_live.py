@@ -56,6 +56,14 @@ def test_place_without_data_gets_no_invented_weather():
     assert "°" not in process.stdout
 
 
+def test_today_means_the_current_day_of_the_data():
+    process, log = run_agent_cli("What's the weather in Ulm today?")
+
+    assert process.returncode == 0, process.stderr
+    dates = {r["args"].get("date") for r in log if r["event"] == "tool_call" and r["tool"] == "get_weather"}
+    assert dates == {"2026-10-29"}
+
+
 def test_question_from_exercise_1_still_works():
     process, log = run_agent_cli("Was steht am 29.10.2026 im Kalender?")
 

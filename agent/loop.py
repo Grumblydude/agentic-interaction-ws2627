@@ -22,7 +22,7 @@ SYSTEM_PROMPT = (
     "day is free, which is not the same as no_data. When you have everything, answer briefly "
     "in plain text without Markdown, with the times, titles, trains and places that matter. "
     "Always answer in the language of the user's question, even if the data is in another "
-    "language."
+    "language: translate data values such as 'Regen' or 'Schauer'."
 )
 
 # Upper bound on model calls per run, so a model that keeps calling tools cannot loop forever.
